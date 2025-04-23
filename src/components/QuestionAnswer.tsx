@@ -4,6 +4,7 @@ interface QAItem {
   id: number;
   question: string;
   answer: string;
+  model?: string;
   timestamp: string;
 }
 
@@ -14,11 +15,48 @@ const QuestionAnswer: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [history, setHistory] = useState<QAItem[]>([]);
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini');
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean>(true);
 
-  // Fetch history on component mount
+  // Fetch history on component mount and check if Ollama model is available
   useEffect(() => {
     fetchHistory();
+    checkOllamaAvailability();
   }, []);
+
+  const checkOllamaAvailability = async () => {
+    try {
+      // Make a test call with the Ollama model option
+      const response = await fetch('http://localhost:8080/api/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          question: "This is a test to check if you're available",
+          model: 'ollama' 
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (errorData.error && errorData.error.includes('Ollama')) {
+          setOllamaAvailable(false);
+          // If Ollama is not available and it's currently selected, switch to Gemini
+          if (selectedModel === 'ollama') {
+            setSelectedModel('gemini');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error checking Ollama availability:', err);
+      setOllamaAvailable(false);
+      // If Ollama is not available and it's currently selected, switch to Gemini
+      if (selectedModel === 'ollama') {
+        setSelectedModel('gemini');
+      }
+    }
+  };
 
   const fetchHistory = async () => {
     try {
@@ -38,6 +76,7 @@ const QuestionAnswer: React.FC = () => {
     
     setIsLoading(true);
     setError('');
+    setAnswer('');
     
     try {
       const response = await fetch('http://localhost:8080/api/ask', {
@@ -45,28 +84,75 @@ const QuestionAnswer: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ 
+          question,
+          model: selectedModel 
+        }),
       });
       
+      const data = await response.json();
+      
       if (!response.ok) {
-        throw new Error('Failed to get answer');
+        throw new Error(data.error || 'Failed to get answer');
       }
       
-      const data = await response.json();
       setAnswer(data.answer);
       
       // Refresh history
       fetchHistory();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error:', err);
-      setError('Failed to get answer. Please try again later.');
+      setError(err.message || 'Failed to get answer. Please try again later.');
+      
+      // If error is related to Ollama, mark it as unavailable
+      if (err.message && err.message.includes('Ollama')) {
+        setOllamaAvailable(false);
+        // Switch back to Gemini
+        setSelectedModel('gemini');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleModelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedModel(e.target.value);
+  };
+
   return (
     <div className="question-answer-container" style={styles.container}>
+      <div style={styles.modelSelector}>
+        <div style={styles.modelOption}>
+          <input
+            type="radio"
+            id="gemini"
+            name="model"
+            value="gemini"
+            checked={selectedModel === 'gemini'}
+            onChange={handleModelChange}
+          />
+          <label htmlFor="gemini">Gemini (with knowledge base)</label>
+        </div>
+        <div style={{
+          ...styles.modelOption,
+          opacity: ollamaAvailable ? 1 : 0.5
+        }}>
+          <input
+            type="radio"
+            id="ollama"
+            name="model"
+            value="ollama"
+            checked={selectedModel === 'ollama'}
+            onChange={handleModelChange}
+            disabled={!ollamaAvailable}
+          />
+          <label htmlFor="ollama">
+            Ollama (fine-tuned model)
+            {!ollamaAvailable && <span style={styles.unavailableText}> - Not available</span>}
+          </label>
+        </div>
+      </div>
+      
       <form onSubmit={handleSubmit} style={styles.form}>
         <div style={styles.inputGroup}>
           <input 
@@ -91,7 +177,7 @@ const QuestionAnswer: React.FC = () => {
       
       {answer && (
         <div style={styles.answerContainer}>
-          <h3>Answer:</h3>
+          <h3>Answer from {selectedModel === 'gemini' ? 'Gemini' : 'Ollama'}</h3>
           <p style={styles.answerText}>{answer}</p>
         </div>
       )}
@@ -117,7 +203,7 @@ const QuestionAnswer: React.FC = () => {
                       <strong>Q:</strong> {item.question}
                     </div>
                     <div style={styles.historyAnswer}>
-                      <strong>A:</strong> {item.answer}
+                      <strong>A ({item.model || 'gemini'}):</strong> {item.answer}
                     </div>
                     <div style={styles.historyTimestamp}>
                       {new Date(item.timestamp).toLocaleString()}
@@ -139,6 +225,19 @@ const styles = {
     maxWidth: '600px',
     margin: '0 auto',
     padding: '20px',
+  },
+  modelSelector: {
+    marginBottom: '20px',
+    padding: '15px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '4px',
+    border: '1px solid #e2e8f0',
+  },
+  modelOption: {
+    marginBottom: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
   form: {
     marginBottom: '20px',
@@ -217,7 +316,12 @@ const styles = {
     fontSize: '12px',
     color: '#666',
     textAlign: 'right' as 'right',
-  }
+  },
+  unavailableText: {
+    color: '#d32f2f',
+    fontSize: '12px',
+    fontStyle: 'italic',
+  },
 };
 
 export default QuestionAnswer;

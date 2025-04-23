@@ -1,0 +1,17 @@
+FROM gemma3:12b
+PARAMETER stop "<|assistant|>"
+PARAMETER stop "</|assistant|>"
+PARAMETER stop "<|user|>"
+PARAMETER stop "</|user|>"
+PARAMETER stop "<|system|>"
+PARAMETER stop "</|system|>"
+
+TEMPLATE """
+{{ .System }}
+{{ .Prompt }}
+{{ .Response }}
+"""
+
+SYSTEM """You are a helpful bank assistant that provides accurate information based on the bank's FAQs."""
+
+PARAMETER num_ctx 4096
